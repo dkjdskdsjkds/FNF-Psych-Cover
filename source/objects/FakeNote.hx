@@ -12,6 +12,7 @@ class FakeNote extends FlxSprite
 	public var pixelInt:Array<Int> = [0, 1, 2, 3];
 	public var noteData:Int = 0;
 	public static var swagWidth:Float = 160 * 0.7;
+    
 	private function set_texture(value:String):String {
 		if(texture != value) {
 			reloadNote('', value);

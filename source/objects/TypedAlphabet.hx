@@ -1,22 +1,11 @@
 package objects;
 
-import flixel.FlxG;
-import flixel.FlxSprite;
-import flixel.graphics.frames.FlxAtlasFrames;
-import flixel.group.FlxSpriteGroup;
-import flixel.math.FlxMath;
-import flixel.util.FlxTimer;
-import flixel.system.FlxSound;
-import flash.media.Sound;
-
-using StringTools;
-
 class TypedAlphabet extends Alphabet
 {
 	public var onFinish:Void->Void = null;
 	public var finishedText:Bool = false;
 	public var delay:Float = 0.05;
-	public var sound:String = 'base/dialogue';
+	public var sound:String = 'dialogue';
 	public var volume:Float = 1;
 
 	public function new(x:Float, y:Float, text:String = "", ?delay:Float = 0.05, ?bold:Bool = false)
