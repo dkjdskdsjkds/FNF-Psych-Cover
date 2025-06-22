@@ -10,7 +10,12 @@ import haxe.format.JsonParser;
 
 using StringTools;
 
-class StrumNote extends FlxSprite
+typedef StrumNoteConfig = {
+	var strumAnimations:Array<Note.NoteAnimArray>;
+	var strumOffset:Array<Float>;
+}
+
+class StrumNote extends OffsettableSprite
 {
 	public var rgbShader:RGBShaderReference;
 	public var resetAnim:Float = 0;
@@ -19,7 +24,10 @@ class StrumNote extends FlxSprite
 	public var downScroll:Bool = false;
 	public var sustainReduce:Bool = true;
 	private var player:Int;
-	
+
+	// Weekend Note Implementation
+	public var separateSheets:Bool = false;
+
 	public var texture(default, set):String = null;
 	public var style(default, set):String = null;
 	private function set_texture(value:String):String {
@@ -61,10 +69,16 @@ class StrumNote extends FlxSprite
 		if(PlayState.SONG != null && PlayState.SONG.arrowSkin != null && PlayState.SONG.arrowSkin.length > 1) skin = PlayState.SONG.arrowSkin;
 		else skin = Note.defaultNoteSkin;
 		if(arrowSkin != null && arrowSkin.length > 1) skin = arrowSkin;
-		if(arrowSkin == null) arrowSkin = 'NOTE_assets';
+		if(arrowSkin == null) arrowSkin = Note.defaultNoteSkin;
 
 		var customSkin:String = skin + Note.getNoteSkinPostfix();
 		if(Paths.fileExists('images/$customSkin.png', IMAGE)) skin = customSkin;
+
+		var isCustomNoteSkin:Bool = false;
+		var CustomNoteSkins:Array<String> = Mods.mergeAllTextsNamed('images/noteSkins/list.txt');
+		for (i in 0...CustomNoteSkins.length) {
+			if (CustomNoteSkins[i] == skin) isCustomNoteSkin = true;
+		}
 
 		var styleStuff:String = 'normal';
 		if(arrowStyle != null && arrowStyle.length > 1) styleStuff = arrowStyle;
@@ -76,29 +90,76 @@ class StrumNote extends FlxSprite
 		playAnim('static');
 	}
     
+	public var isLegacyNoteSkin:Bool = false;
 	public var isPixelNote:Bool = false; // Needs to be global since it's used in playAnim
 
 	public function reloadNote()
 	{
+        separateSheets = false;
+		isLegacyNoteSkin = false;
+		animOffsets.clear();
+
 		var lastAnim:String = null;
 		if(animation.curAnim != null) lastAnim = animation.curAnim.name;
         
+		if (texture == 'pixel') texture = "NOTE_assets-pixel";
+		if (texture == 'normal') texture = "NOTE_assets";
+
+		var notePath:String = texture;
+
+		var curNotePath = notePath;
 		isPixelNote = false;
+
+		for (noteDirectory in ["noteSkins/", "notes/", "pixelUI/noteSkins/", "pixelUI/notes/"]) {
+			final fullPath = '$noteDirectory$notePath';
+			final weekendPath = '$fullPath/notes_strumline';
+			var jsonPath = fullPath;
+		
+			if (Paths.fileExists('images/$weekendPath.png', IMAGE)) {
+				separateSheets = true;
+				jsonPath = '$noteDirectory$notePath/$notePath';
+				notePath = weekendPath;
+			} else if (Paths.fileExists('images/$fullPath.png', IMAGE)) {
+				notePath = fullPath;
+			}
+
+			if (Paths.fileExists('images/$jsonPath.json', TEXT)) {
+				final json = Note.getNoteConfig('images/$jsonPath');
+				if (json.strumAnimations != null) {
+					for (anim in json.strumAnimations) {
+						addOffset(anim.anim, anim.offsets[0], anim.offsets[1]);
+					}
+				}
+			}
+		
+			if (curNotePath != notePath) {
+				isLegacyNoteSkin = (noteDirectory == "notes/");
+				isPixelNote = (noteDirectory.startsWith("pixelUI/") || StringTools.contains(notePath, "-pixel"));
+				break;
+			}
+		}
+
+		var isCustomNoteSkin:Bool = false;
+		var CustomNoteSkins:Array<String> = Mods.mergeAllTextsNamed('images/noteSkins/list.txt');
+		for (i in 0...CustomNoteSkins.length) {
+			if (CustomNoteSkins[i] == texture) isCustomNoteSkin = true;
+		}
+
+		defaultRGB(isPixelNote);
 
 		switch(style)
 		{
 			case 'pixel':
                 isPixelNote = true;
 
-				loadGraphic(Paths.image('pixelUI/' + texture));
-				width = width / 4;
-				height = height / 5;
-				loadGraphic(Paths.image('pixelUI/' + texture), true, Math.floor(width), Math.floor(height));
-
+                loadGraphic(Paths.image(notePath));
+                width = width / 4;
+                height = height / 5;
+                loadGraphic(Paths.image(notePath), true, Math.floor(width), Math.floor(height));
 			default:
                 isPixelNote = false;
 
-				frames = Paths.getSparrowAtlas(texture);
+			    frames = Paths.getSparrowAtlas(notePath);
 		}
 
 		loadNoteAnims(isPixelNote);

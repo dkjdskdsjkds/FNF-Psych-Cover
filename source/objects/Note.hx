@@ -31,6 +31,22 @@ typedef NoteSplashData = {
 	a:Float
 }
 
+typedef NoteAnimArray = {
+    var anim:String;
+    var offsets:Array<Int>;
+
+    @:optional var name:String;
+    @:optional var fps:Int;
+    @:optional var loop:Bool;
+    @:optional var indices:Array<Int>;
+}
+
+typedef NoteConfig = {
+	@:optional var strumAnimations:Array<NoteAnimArray>;
+	@:optional var strumOffset:Array<Float>;
+	@:optional var rgbEnabled:Bool;
+}
+
 /**
  * The note object used as a data structure to spawn and manage notes during gameplay.
  * 
@@ -133,6 +149,11 @@ class Note extends FlxSprite
 	public var noMissAnimation:Bool = false;
 	public var hitCausesMiss:Bool = false;
 	public var distance:Float = 2000; //plan on doing scroll directions soon -bb
+
+	//Weekend notes implementation... kinda
+	var separateSheets:Bool = false;
+	var separateXMLExists:Bool = false;
+	public var noteAnimSuffixes:Array<String> = ["0", " hold piece", " hold end"]; // To accommodate for other namings
 
 	// I don't like using isPixelStage;
 	public var isPixelNote:Bool = false; // Needs to be global for use in other functions
@@ -306,7 +327,7 @@ class Note extends FlxSprite
 
 			offsetX -= width / 2;
 
-			if (isPixelNote || style != 'pixel')
+			if (isPixelNote || style != 'pixel' || separateSheets)
 				offsetX += 30;
 
 			if (prevNote.isSustainNote)
@@ -369,6 +390,8 @@ class Note extends FlxSprite
 	public var originalHeight:Float = 6;
 	public var correctionOffset:Float = 0; //dont mess with this
 
+	public var isLegacyNoteSkin:Bool = false;
+
 	public function reloadNote(texture:String = '', postfix:String = '') {
 		rgbShader.enabled = true; // It should always set back to true in case texture is empty or texture.length < 1;
 
@@ -386,6 +409,28 @@ class Note extends FlxSprite
 			if(texture == null || texture.length < 1) texture = defaultNoteSkin + postfix;
 		}
 		else rgbShader.enabled = false;
+
+		separateSheets = false;
+		separateXMLExists = false;
+		isLegacyNoteSkin = false;
+
+		var skin:String = texture + postfix;
+		if (texture == 'pixel') {
+			rgbShader.enabled = true;
+			texture = "NOTE_assets-pixel";
+			skin = texture + postfix;
+		}else if (texture == 'normal') {
+			rgbShader.enabled = true;
+			texture = "NOTE_assets";
+			skin = texture + postfix;
+		}
+		var notePath:String = texture;
+
+		var isCustomNoteSkin:Bool = false;
+		var CustomNoteSkins:Array<String> = Mods.mergeAllTextsNamed('images/noteSkins/list.txt');
+		for (i in 0...CustomNoteSkins.length) {
+			if (CustomNoteSkins[i] == skin) isCustomNoteSkin = true;
+		}
 
 		var animName:String = null;
 		if(animation.curAnim != null) {
@@ -405,6 +450,35 @@ class Note extends FlxSprite
 			_lastValidChecked = customSkin;
 		}
 		else skinPostfix = '';
+
+		var curSkin = skin;
+
+		for (noteDirectory in ["noteSkins/", "notes/", "pixelUI/noteSkins/", "pixelUI/Notes/"]) {
+			final fullPath = '$noteDirectory$skin';
+			final weekendPath = '$fullPath/notes';
+			var jsonPath = fullPath;
+
+			if (Paths.fileExists('images/$weekendPath.png', IMAGE)) {
+				separateSheets = true;
+				jsonPath = '$noteDirectory$skin/$skin';
+				skin = weekendPath;
+			} else if (Paths.fileExists('images/$fullPath.png', IMAGE)) {
+				skin = fullPath;
+			}
+
+			if (Paths.fileExists('images/$jsonPath.json', TEXT)) {
+				final json = getNoteConfig('images/$jsonPath');
+				rgbShader.enabled = json.rgbEnabled != null ? json.rgbEnabled : false;
+			}
+
+			if (curSkin != skin){
+				isLegacyNoteSkin = (noteDirectory == "notes/");
+				if (noteDirectory.startsWith("pixelUI/") || StringTools.contains(skin, "-pixel")) {
+					isPixelNote = true;
+				}
+				break;
+			}
+		}
 
         defaultRGB(isPixelNote);
 
@@ -446,7 +520,7 @@ class Note extends FlxSprite
 			default:
                 isPixelNote = false;
 
-                loadNoteFrames(skin);
+			    loadNoteFrames(skin, separateSheets);
                 loadNoteAnims();
                 if(!isSustainNote)
                 {
@@ -476,11 +550,21 @@ class Note extends FlxSprite
 		return skin;
 	}
 
-	function loadNoteFrames(skin:String){
-		try {
-			frames = Paths.getSparrowAtlas(skin);
-		} catch(e){
-			texture = Note.defaultNoteSkin;
+	function loadNoteFrames(skin:String, ?separateSheets:Bool = false){
+		if (separateSheets && isSustainNote){
+			if (Paths.fileExists("images/" + skin + "_hold.xml", IMAGE)){
+				frames = Paths.getSparrowAtlas(skin + "_hold");
+				separateXMLExists = true;
+			}else{
+				var rawPic:Dynamic = Paths.image(skin + "_hold");
+				loadGraphic(rawPic, true, 52, 87);
+			}
+		}else{
+			try {
+				frames = Paths.getSparrowAtlas(skin);
+			} catch(e){
+				texture = Note.defaultNoteSkin;
+			}
 		}
 	}
 
@@ -488,13 +572,28 @@ class Note extends FlxSprite
         if (colArray[noteData] == null)
 			return;
 
-		if (isSustainNote)
-		{
-			attemptToAddAnimationByPrefix('purpleholdend', 'pruple end hold', 24, true); // this fixes some retarded typo from the original note .FLA
-			animation.addByPrefix(colArray[noteData] + 'holdend', colArray[noteData] + ' hold end', 24, true);
-			animation.addByPrefix(colArray[noteData] + 'hold', colArray[noteData] + ' hold piece', 24, true);
+		if (separateSheets){
+			if (isSustainNote) {
+				if (separateXMLExists){
+					animation.addByPrefix(colArray[noteData] + 'holdend', colArray[noteData] + noteAnimSuffixes[2], 24, true);
+					animation.addByPrefix(colArray[noteData] + 'hold', colArray[noteData] + noteAnimSuffixes[1], 24, true);
+				}else{
+					animation.add(colArray[noteData] + 'holdend', [noteData * 2 + 1]);
+					animation.add(colArray[noteData] + 'hold', [noteData * 2]);
+				}
+			}else{
+				var dirScroll:Array<String> = ["Left", "Down", "Up", "Right"];
+				animation.addByPrefix(colArray[noteData]+"Scroll", "note" + dirScroll[noteData]);
+			}
+		}else{
+			if (isSustainNote)
+			{
+				attemptToAddAnimationByPrefix('purpleholdend', 'pruple end hold', 24, true); // this fixes some retarded typo from the original note .FLA
+				animation.addByPrefix(colArray[noteData] + 'holdend', colArray[noteData] + ' hold end', 24, true);
+				animation.addByPrefix(colArray[noteData] + 'hold', colArray[noteData] + ' hold piece', 24, true);
+			}
+			else animation.addByPrefix(colArray[noteData] + 'Scroll', colArray[noteData] + '0');
 		}
-		else animation.addByPrefix(colArray[noteData] + 'Scroll', colArray[noteData] + '0');
 
 		setGraphicSize(Std.int(width * 0.7));
 		updateHitbox();
@@ -633,6 +732,48 @@ class Note extends FlxSprite
 			frame = frames.frames[animation.frameIndex];
 
 		return rect;
+	}
+
+    public static function dummy():NoteConfig
+	{
+		return {
+			strumAnimations: [
+				{
+					offsets: [
+						0,
+						0
+					],
+					anim: "confirm"
+				},
+				{
+					offsets: [
+						0,
+						0
+					],
+					anim: "pressed"
+				},
+				{
+					offsets: [
+						0,
+						0
+					],
+					anim: "static"
+				}
+			],
+			strumOffset: [
+				0,
+				0
+			],
+			rgbEnabled: true
+		};
+	}
+
+	public static function getNoteConfig(jsonPath:String){
+		try
+		{
+			return cast tjson.TJSON.parse(Paths.getTextFromFile('$jsonPath.json'));
+		}
+		return dummy();
 	}
 }
 
