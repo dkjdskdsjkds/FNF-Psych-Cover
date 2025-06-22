@@ -15,6 +15,8 @@ import options.ModSettingsSubState;
 import openfl.display.BitmapData;
 import lime.utils.Assets;
 
+import states.freeplay.FreeplayState;
+
 class ModsMenuState extends MusicBeatState
 {
 	var bg:FlxSprite;

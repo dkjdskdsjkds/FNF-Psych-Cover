@@ -1,16 +1,10 @@
-package meta.substate;
+package substates;
 
-import MusicBeat;
-import flixel.FlxG;
-import flixel.FlxSprite;
+import backend.WeekData;
+import backend.Highscore;
+
 import flixel.FlxSubState;
-import flixel.util.FlxColor;
-import objects.Alphabet;
 import objects.HealthIcon;
-import util.WeekData;
-import util.Highscore;
-import util.CoolUtil;
-using StringTools;
 
 class ResetScoreSubState extends MusicBeatSubstate
 {
@@ -38,7 +32,7 @@ class ResetScoreSubState extends MusicBeatSubstate
 		if(week > -1) {
 			name = WeekData.weeksLoaded.get(WeekData.weeksList[week]).weekName;
 		}
-		name += ' (' + CoolUtil.difficulties[difficulty] + ')?';
+		name += ' (' + Difficulty.getString(difficulty) + ')?';
 
 		bg = new FlxSprite().makeGraphic(FlxG.width, FlxG.height, FlxColor.BLACK);
 		bg.alpha = 0;
@@ -46,7 +40,7 @@ class ResetScoreSubState extends MusicBeatSubstate
 		add(bg);
 
 		var tooLong:Float = (name.length > 18) ? 0.8 : 1; //Fucking Winter Horrorland
-		var text:Alphabet = new Alphabet(0, 180, "Reset the score of", true);
+		var text:Alphabet = new Alphabet(0, 180, Language.getPhrase('reset_score', 'Reset the score of'), true);
 		text.screenCenter(X);
 		alphabetArray.push(text);
 		text.alpha = 0;
@@ -67,14 +61,16 @@ class ResetScoreSubState extends MusicBeatSubstate
 			add(icon);
 		}
 
-		yesText = new Alphabet(0, text.y + 150, 'Yes', true);
+		yesText = new Alphabet(0, text.y + 150, Language.getPhrase('Yes'), true);
 		yesText.screenCenter(X);
 		yesText.x -= 200;
 		add(yesText);
-		noText = new Alphabet(0, text.y + 150, 'No', true);
+		noText = new Alphabet(0, text.y + 150, Language.getPhrase('No'), true);
 		noText.screenCenter(X);
 		noText.x += 200;
 		add(noText);
+		
+		for(letter in yesText.letters) letter.color = FlxColor.RED;
 		updateOptions();
 	}
 

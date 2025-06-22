@@ -13,7 +13,7 @@ import flixel.util.FlxStringUtil;
 class DiscordClient
 {
 	public static var isInitialized:Bool = false;
-	private static final _defaultID:String = "863222024192262205";
+	private inline static final _defaultID:String = "863222024192262205";
 	public static var clientID(default, set):String = _defaultID;
 	private static var presence:DiscordPresence = new DiscordPresence();
 	// hides this field from scripts and reflection in general
@@ -107,8 +107,8 @@ class DiscordClient
 		presence.state = state;
 		presence.details = details;
 		presence.smallImageKey = smallImageKey;
-		presence.largeImageKey = 'kaguya';
-		presence.largeImageText = "Engine Version: " + states.MainMenuState.betadciuVer;
+		presence.largeImageKey = largeImageKey;
+		presence.largeImageText = "Engine Version: " + states.MainMenuState.psychCoverEngineVersion;
 		// Obtained times are in milliseconds so they are divided so Discord can use it
 		presence.startTimestamp = Std.int(startTimestamp / 1000);
 		presence.endTimestamp = Std.int(endTimestamp / 1000);
@@ -142,14 +142,14 @@ class DiscordClient
 	}
 
 	#if MODS_ALLOWED
-	public static function loadModRPC() // i don't like this
+	public static function loadModRPC()
 	{
-		// var pack:Dynamic = Mods.getPack();
-		// if(pack != null && pack.discordRPC != null && pack.discordRPC != clientID)
-		// {
-		// 	clientID = pack.discordRPC;
-		// 	//trace('Changing clientID! $clientID, $_defaultID');
-		// }
+		var pack:Dynamic = Mods.getPack();
+		if(pack != null && pack.discordRPC != null && pack.discordRPC != clientID)
+		{
+			clientID = pack.discordRPC;
+			//trace('Changing clientID! $clientID, $_defaultID');
+		}
 	}
 	#end
 

@@ -1,8 +1,8 @@
 package states.editors;
 
 import flixel.graphics.FlxGraphic;
+import openfl.display.BitmapData;
 
-import flixel.system.debug.interaction.tools.Pointer.GraphicCursorCross;
 import flixel.util.FlxDestroyUtil;
 
 import openfl.net.FileReference;
@@ -16,6 +16,13 @@ import objects.Bar;
 
 import states.editors.content.Prompt;
 import states.editors.content.PsychJsonPrinter;
+
+#if (flixel < "6.0.0")
+import flixel.system.debug.interaction.tools.Pointer.GraphicCursorCross;
+#else
+@:bitmap("assets/images/debugger/cursorCross.png") // I would use Icon.cross but it only compiles the cursors when in debug mode, which... no
+class GraphicCursorCross extends BitmapData {}
+#end
 
 class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler.PsychUIEvent
 {
@@ -71,6 +78,9 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		Paths.clearUnusedMemory();
 
 		FlxG.sound.music.stop();
+		#if !web // me and my lazyness to made this a mp3
+		FlxG.sound.playMusic(Paths.music('kawaruslow'), 0.7);
+		#end
 		camEditor = initPsychCamera();
 
 		camHUD = new FlxCamera();
@@ -251,7 +261,7 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		UI_box.scrollFactor.set();
 		UI_box.cameras = [camHUD];
 
-		UI_characterbox = new PsychUIBox(UI_box.x - 100, UI_box.y + UI_box.height + 10, 350, 280, ['Animations', 'Character']);
+		UI_characterbox = new PsychUIBox(UI_box.x - 100, UI_box.y + UI_box.height + 10, 350, 310, ['Animations', 'Character']);
 		UI_characterbox.scrollFactor.set();
 		UI_characterbox.cameras = [camHUD];
 		add(UI_characterbox);
@@ -382,8 +392,10 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		{
 			character.isPlayer = !character.isPlayer;
 			character.flipX = !character.flipX;
+			character.flipAnims();
+			reloadAnimList();
 			updateCharacterPositions();
-			updatePointerPos(false);
+			updatePointerPos(true);
 		};
 
 		var reloadCharacter:PsychUIButton = new PsychUIButton(140, 20, "Reload Char", function()
@@ -413,7 +425,10 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 				scale: 1,
 				healthbar_colors: [161, 161, 161],
 				camera_position: [0, 0],
+				player_camera_position: [0, 0],
 				position: [0, 0],
+				player_position: [0, 0],
+				isPlayerChar: false,
 				vocals_file: null
 			};
 
@@ -539,11 +554,25 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 					character.animationsArray.remove(anim);
 				}
 
+			var lastPlayerOffsets:Array<Int> = [0, 0];
+			for (anim in character.animationsArray)
+				if(animationInputText.text == anim.anim) {
+					if(anim.playerOffsets != null && anim.playerOffsets.length > 1) lastPlayerOffsets = anim.playerOffsets;
+					else lastPlayerOffsets = anim.offsets;
+					if(character.hasAnimation(animationInputText.text))
+					{
+						if(!character.isAnimateAtlas) character.animation.remove(animationInputText.text);
+						else @:privateAccess character.atlas.anim.animsMap.remove(animationInputText.text);
+					}
+					character.animationsArray.remove(anim);
+				}
+
 			var addedAnim:AnimArray = newAnim(animationInputText.text, animationNameInputText.text);
 			addedAnim.fps = Math.round(animationFramerate.value);
 			addedAnim.loop = animationLoopCheckBox.checked;
 			addedAnim.indices = indices;
 			addedAnim.offsets = lastOffsets;
+			addedAnim.playerOffsets = lastPlayerOffsets;
 			addAnimation(addedAnim.anim, addedAnim.name, addedAnim.fps, addedAnim.loop, addedAnim.indices);
 			character.animationsArray.push(addedAnim);
 
@@ -603,8 +632,12 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 	var scaleStepper:PsychUINumericStepper;
 	var positionXStepper:PsychUINumericStepper;
 	var positionYStepper:PsychUINumericStepper;
+	var playerPositionXStepper:PsychUINumericStepper;
+	var playerPositionYStepper:PsychUINumericStepper;
 	var positionCameraXStepper:PsychUINumericStepper;
 	var positionCameraYStepper:PsychUINumericStepper;
+	var playerPositionCameraXStepper:PsychUINumericStepper;
+	var playerPositionCameraYStepper:PsychUINumericStepper;
 
 	var flipXCheckBox:PsychUICheckBox;
 	var noAntialiasingCheckBox:PsychUICheckBox;
@@ -662,13 +695,21 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 			character.noAntialiasing = noAntialiasingCheckBox.checked;
 		};
 
-		positionXStepper = new PsychUINumericStepper(flipXCheckBox.x + 110, flipXCheckBox.y, 10, character.positionArray[0], -9000, 9000, 0);
+		// positionXStepper = new PsychUINumericStepper(flipXCheckBox.x + 110, flipXCheckBox.y, 10, character.positionArray[0], -9000, 9000, 0);
+		positionXStepper = new PsychUINumericStepper(flipXCheckBox.x + 110, vocalsInputText.y, 10, character.positionArray[0], -9000, 9000, 0);
 		positionYStepper = new PsychUINumericStepper(positionXStepper.x + 70, positionXStepper.y, 10, character.positionArray[1], -9000, 9000, 0);
 
-		positionCameraXStepper = new PsychUINumericStepper(positionXStepper.x, positionXStepper.y + 40, 10, character.cameraPosition[0], -9000, 9000, 0);
-		positionCameraYStepper = new PsychUINumericStepper(positionYStepper.x, positionYStepper.y + 40, 10, character.cameraPosition[1], -9000, 9000, 0);
+		positionCameraXStepper = new PsychUINumericStepper(positionXStepper.x, positionXStepper.y + 45, 10, character.cameraPosition[0], -9000, 9000, 0);
+		positionCameraYStepper = new PsychUINumericStepper(positionYStepper.x, positionYStepper.y + 45, 10, character.cameraPosition[1], -9000, 9000, 0);
 
-		var saveCharacterButton:PsychUIButton = new PsychUIButton(reloadImage.x, noAntialiasingCheckBox.y + 40, "Save Character", function() {
+		playerPositionXStepper = new PsychUINumericStepper(positionXStepper.x, positionCameraXStepper.y + 40, 10, character.playerPositionArray[0], -9000, 9000, 0);
+		playerPositionYStepper = new PsychUINumericStepper(positionXStepper.x + 70, positionCameraYStepper.y + 40, 10, character.playerPositionArray[1], -9000, 9000, 0);
+
+		playerPositionCameraXStepper = new PsychUINumericStepper(playerPositionXStepper.x, playerPositionXStepper.y + 40, 10, character.playerCameraPosition[0], -9000, 9000, 0);
+		playerPositionCameraYStepper = new PsychUINumericStepper(playerPositionYStepper.x, playerPositionYStepper.y + 40, 10, character.playerCameraPosition[1], -9000, 9000, 0);
+
+
+		var saveCharacterButton:PsychUIButton = new PsychUIButton(reloadImage.x, noAntialiasingCheckBox.y + 70, "Save Character", function() {
 			saveCharacter();
 		});
 
@@ -682,7 +723,9 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		tab_group.add(new FlxText(15, singDurationStepper.y - 18, 120, 'Sing Animation length:'));
 		tab_group.add(new FlxText(15, scaleStepper.y - 18, 100, 'Scale:'));
 		tab_group.add(new FlxText(positionXStepper.x, positionXStepper.y - 18, 100, 'Character X/Y:'));
+		tab_group.add(new FlxText(playerPositionXStepper.x, playerPositionXStepper.y - 18, 0, 'Character Player X/Y:'));
 		tab_group.add(new FlxText(positionCameraXStepper.x, positionCameraXStepper.y - 18, 100, 'Camera X/Y:'));
+		tab_group.add(new FlxText(playerPositionCameraXStepper.x, playerPositionCameraXStepper.y - 18, 0, 'Player Camera X/Y:'));
 		tab_group.add(new FlxText(healthColorStepperR.x, healthColorStepperR.y - 18, 100, 'Health Bar R/G/B:'));
 		tab_group.add(imageInputText);
 		tab_group.add(reloadImage);
@@ -697,6 +740,10 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		tab_group.add(positionYStepper);
 		tab_group.add(positionCameraXStepper);
 		tab_group.add(positionCameraYStepper);
+		tab_group.add(playerPositionXStepper);
+		tab_group.add(playerPositionYStepper);
+		tab_group.add(playerPositionCameraXStepper);
+		tab_group.add(playerPositionCameraYStepper);
 		tab_group.add(healthColorStepperR);
 		tab_group.add(healthColorStepperG);
 		tab_group.add(healthColorStepperB);
@@ -751,6 +798,16 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 				updateCharacterPositions();
 				unsavedProgress = true;
 			}
+			else if(sender == playerPositionXStepper)
+			{
+				character.playerPositionArray[0] = playerPositionXStepper.value;
+				updateCharacterPositions();
+			}
+			else if(sender == playerPositionYStepper)
+			{
+				character.playerPositionArray[1] = playerPositionYStepper.value;
+				updateCharacterPositions();
+			}
 			else if(sender == singDurationStepper)
 			{
 				character.singDuration = singDurationStepper.value;
@@ -759,13 +816,25 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 			else if(sender == positionCameraXStepper)
 			{
 				character.cameraPosition[0] = positionCameraXStepper.value;
-				updatePointerPos();
+				updatePointerPos(false);
 				unsavedProgress = true;
 			}
 			else if(sender == positionCameraYStepper)
 			{
 				character.cameraPosition[1] = positionCameraYStepper.value;
-				updatePointerPos();
+				updatePointerPos(false);
+				unsavedProgress = true;
+			}
+			else if(sender == playerPositionCameraXStepper)
+			{
+				character.playerCameraPosition[0] = playerPositionCameraXStepper.value;
+				updatePointerPos(false);
+				unsavedProgress = true;
+			}
+			else if(sender == playerPositionCameraYStepper)
+			{
+				character.playerCameraPosition[1] = playerPositionCameraYStepper.value;
+				updatePointerPos(false);
 				unsavedProgress = true;
 			}
 			else if(sender == healthColorStepperR)
@@ -847,8 +916,12 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		noAntialiasingCheckBox.checked = character.noAntialiasing;
 		positionXStepper.value = character.positionArray[0];
 		positionYStepper.value = character.positionArray[1];
+		playerPositionXStepper.value = character.playerPositionArray[0];
+		playerPositionYStepper.value = character.playerPositionArray[1];
 		positionCameraXStepper.value = character.cameraPosition[0];
 		positionCameraYStepper.value = character.cameraPosition[1];
+		playerPositionCameraXStepper.value = character.playerCameraPosition[0];
+		playerPositionCameraYStepper.value = character.playerCameraPosition[1];
 		reloadAnimationDropDown();
 		updateHealthBar();
 	}
@@ -978,12 +1051,21 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		}
 
 		var anim = anims[curAnim];
-		if(changedOffset && anim != null && anim.offsets != null)
+		if(changedOffset && anim != null && anim.offsets != null && !character.isPlayer)
 		{
 			anim.offsets[0] = Std.int(character.offset.x);
 			anim.offsets[1] = Std.int(character.offset.y);
 
 			character.addOffset(anim.anim, character.offset.x, character.offset.y);
+			updateText();
+		}
+
+		if(changedOffset && anim != null && anim.playerOffsets != null && character.isPlayer)
+		{
+			anim.playerOffsets[0] = Std.int(character.offset.x);
+			anim.playerOffsets[1] = Std.int(character.offset.y);
+
+			character.addPlayerOffset(anim.anim, character.offset.x, character.offset.y);
 			updateText();
 		}
 
@@ -1077,17 +1159,22 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		/////////////
 		// bg data //
 		/////////////
-		#if !BASE_GAME_FILES
-		camEditor.bgColor = 0xFF666666;
-		#else
-		var bg:BGSprite = new BGSprite('stageback', -600, -200, 0.9, 0.9);
-		add(bg);
+		var canLoadBG:Bool = false;
 
-		var stageFront:BGSprite = new BGSprite('stagefront', -650, 600, 0.9, 0.9);
-		stageFront.setGraphicSize(Std.int(stageFront.width * 1.1));
-		stageFront.updateHitbox();
-		add(stageFront);
-		#end
+		#if BASE_GAME_FILES canLoadBG = true; #end
+		#if ESSENTIAL_COVER_FILES canLoadBG = true; #end
+
+		if (!canLoadBG) {
+			camEditor.bgColor = 0xFF666666;
+		} else {
+			var bg:BGSprite = new BGSprite('stageback', -600, -200, 0.9, 0.9);
+			add(bg);
+	
+			var stageFront:BGSprite = new BGSprite('stagefront', -650, 600, 0.9, 0.9);
+			stageFront.setGraphicSize(Std.int(stageFront.width * 1.1));
+			stageFront.updateHitbox();
+			add(stageFront);	
+		}
 
 		dadPosition.set(100, 100);
 		bfPosition.set(770, 100);
@@ -1109,8 +1196,8 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		}
 		else
 		{
-			offX = character.getMidpoint().x - 100 - character.cameraPosition[0];
-			offY = character.getMidpoint().y - 100 + character.cameraPosition[1];
+			offX = character.getMidpoint().x - 100 - character.playerCameraPosition[0];
+			offY = character.getMidpoint().y - 100 + character.playerCameraPosition[1];
 		}
 		cameraFollowPointer.setPosition(offX, offY);
 
@@ -1152,7 +1239,7 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 	{
 		animsTxt.removeFormat(selectedFormat);
 
-		var intendText:String = '';
+		var intendText:String = 'Offsets:\n';
 		for (num => anim in anims)
 		{
 			if(num > 0) intendText += '\n';
@@ -1161,11 +1248,28 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 			{
 				var n:Int = intendText.length;
 				intendText += anim.anim + ": " + anim.offsets;
-				animsTxt.addFormat(selectedFormat, n, intendText.length);
+				if (!character.isPlayer)animsTxt.addFormat(selectedFormat, n, intendText.length);
 			}
 			else intendText += anim.anim + ": " + anim.offsets;
 		}
 		animsTxt.text = intendText;
+
+		// Player Offsets
+		intendText += "\n \nPlayer Offsets:\n";
+		for (num => anim in anims)
+			{
+				if(num > 0) intendText += '\n';
+	
+				if(num == curAnim)
+				{
+					var n:Int = intendText.length;
+					intendText += anim.anim + ": " + (anim.playerOffsets != null ? anim.playerOffsets : anim.offsets); // if cannot find player offsets, display's opponent ones to prevent crashes
+					if (character.isPlayer) animsTxt.addFormat(selectedFormat, n, intendText.length);
+				}
+				else intendText += anim.anim + ": " + (anim.playerOffsets != null ? anim.playerOffsets : anim.offsets);
+			}
+		animsTxt.text = intendText;
+	
 	}
 
 	inline function updateCharacterPositions()
@@ -1173,8 +1277,13 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 		if((character != null && !character.isPlayer) || (character == null && predictCharacterIsNotPlayer(_char))) character.setPosition(dadPosition.x, dadPosition.y);
 		else character.setPosition(bfPosition.x, bfPosition.y);
 
-		character.x += character.positionArray[0];
-		character.y += character.positionArray[1];
+		if (character.isPlayer) {
+			character.x += character.playerPositionArray[0];
+			character.y += character.playerPositionArray[1];
+		} else {
+			character.x += character.positionArray[0];
+			character.y += character.positionArray[1];
+		}
 		updatePointerPos(false);
 	}
 
@@ -1209,6 +1318,7 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 	{
 		return {
 			offsets: [0, 0],
+			playerOffsets: [0, 0],
 			loop: false,
 			fps: 24,
 			anim: anim,
@@ -1237,7 +1347,11 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 
 	function reloadAnimationDropDown() {
 		var animList:Array<String> = [];
-		for (anim in anims) animList.push(anim.anim);
+		for (anim in anims) {
+			if (anim.playerOffsets == null && anim.offsets != null)
+				anim.playerOffsets = anim.offsets;
+			animList.push(anim.anim);
+		}
 		if(animList.length < 1) animList.push('NO ANIMATIONS'); //Prevents crash
 
 		animationDropDown.list = animList;
@@ -1289,18 +1403,24 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 			"scale": character.jsonScale,
 			"sing_duration": character.singDuration,
 			"healthicon": character.healthIcon,
+			"arrowSkin": character.arrowSkin,
+			"arrowStyle": character.arrowStyle,
+			"splashSkin": character.splashSkin,
 
 			"position":	character.positionArray,
+			"player_position": character.playerPositionArray,
 			"camera_position": character.cameraPosition,
+			"player_camera_position": character.playerCameraPosition,
 
 			"flip_x": character.originalFlipX,
 			"no_antialiasing": character.noAntialiasing,
 			"healthbar_colors": character.healthColorArray,
 			"vocals_file": character.vocalsFile,
+			"isPlayerChar": character.isPsychPlayer,
 			"_editor_isPlayer": character.isPlayer
 		};
 
-		var data:String = PsychJsonPrinter.print(json, ['offsets', 'position', 'healthbar_colors', 'camera_position', 'indices']);
+		var data:String = PsychJsonPrinter.print(json, ['offsets', 'position', 'healthbar_colors', 'camera_position', 'indices', 'player_position', 'player_camera_position', 'playerOffsets']);
 
 		if (data.length > 0)
 		{

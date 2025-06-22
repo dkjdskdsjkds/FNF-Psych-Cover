@@ -1,5 +1,7 @@
 package states.freeplay;
 
+import states.freeplay.FreeplayState.SongMetadata;
+
 import backend.WeekData;
 import backend.Highscore;
 import backend.Song;
@@ -58,23 +60,6 @@ class BETADCIUState extends MusicBeatState
 		//Paths.clearStoredMemory();
 		//Paths.clearUnusedMemory();
 
-		if (FlxG.sound.music.volume == 0 || !FlxG.sound.music.playing)
-		{
-			FlxG.sound.music.volume = 1;
-			FlxG.sound.playMusic(Paths.music('songSelect'));
-		}
-
-		if (FlxG.sound.music.playing || MainMenuState.mainMusic)
-		{
-			FlxG.sound.playMusic(Paths.music('songSelect'));
-			MainMenuState.mainMusic = false;
-		}
-		if (!FlxG.sound.music.playing || MainMenuState.mainMusic == false)
-		{
-			FlxG.sound.playMusic(Paths.music('songSelect'));
-			MainMenuState.mainMusic = false;
-		}
-		
 		persistentUpdate = true;
 		PlayState.isStoryMode = false;
 		WeekData.reloadWeekFiles(false, 1);
@@ -239,7 +224,7 @@ class BETADCIUState extends MusicBeatState
 		PlayState.isBETADCIU = true; //gotta move this cuz of the format thing
 		
 		PlayState.isStoryMode = false;	
-		PlayState.isBonus = false;
+		PlayState.isCover = false;
 
 		if(WeekData.weeksList.length < 1)
 			return;
@@ -632,24 +617,4 @@ class BETADCIUState extends MusicBeatState
 		if (!FlxG.sound.music.playing && !stopMusicPlay)
 			FlxG.sound.playMusic(Paths.music('freakyMenu'));
 	}	
-}
-
-class SongMetadata
-{
-	public var songName:String = "";
-	public var week:Int = 0;
-	public var songCharacter:String = "";
-	public var color:Int = -7179779;
-	public var folder:String = "";
-	public var lastDifficulty:String = null;
-
-	public function new(song:String, week:Int, songCharacter:String, color:Int)
-	{
-		this.songName = song;
-		this.week = week;
-		this.songCharacter = songCharacter;
-		this.color = color;
-		this.folder = Mods.currentModDirectory;
-		if(this.folder == null) this.folder = '';
-	}
 }

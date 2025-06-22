@@ -2119,6 +2119,17 @@ class StageEditorAnimationSubstate extends MusicBeatSubstate {
 					target.sprite.animation.remove(animationInputText.text);
 					target.animations.remove(anim);
 				}
+				
+			var lastPlayerOffsets:Array<Int> = null;
+			for (anim in target.animations)
+				if(animationInputText.text == anim.anim)
+				{
+					if(anim.playerOffsets != null && anim.playerOffsets.length > 1) lastPlayerOffsets = anim.playerOffsets;
+					else lastPlayerOffsets = anim.offsets;
+					cast (target.sprite, ModchartSprite).animOffsets.remove(animationInputText.text);
+					target.sprite.animation.remove(animationInputText.text);
+					target.animations.remove(anim);
+				}
 
 			var addedAnim:AnimArray = {
 				anim: animationInputText.text,
@@ -2126,7 +2137,8 @@ class StageEditorAnimationSubstate extends MusicBeatSubstate {
 				fps: Math.round(animationFramerate.value),
 				loop: animationLoopCheckBox.checked,
 				indices: indices,
-				offsets: lastOffsets
+				offsets: lastOffsets,
+				playerOffsets: lastPlayerOffsets
 			};
 
 			if(addedAnim.indices != null && addedAnim.indices.length > 0)

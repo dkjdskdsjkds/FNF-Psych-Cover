@@ -1,6 +1,6 @@
-package states.betadciu;
+package states.freeplay;
 
-import states.FreeplayState.SongMetadata;
+import states.freeplay.FreeplayState.SongMetadata;
 import backend.WeekData;
 import backend.Highscore;
 import backend.Song;
@@ -58,23 +58,6 @@ class CoverState extends MusicBeatState
 	{
 		//Paths.clearStoredMemory();
 		//Paths.clearUnusedMemory();
-
-		if (FlxG.sound.music.volume == 0 || !FlxG.sound.music.playing)
-		{
-			FlxG.sound.music.volume = 1;
-			FlxG.sound.playMusic(Paths.music('songSelect'));
-		}
-
-		if (FlxG.sound.music.playing || MainMenuState.mainMusic)
-		{
-			FlxG.sound.playMusic(Paths.music('songSelect'));
-			MainMenuState.mainMusic = false;
-		}
-		if (!FlxG.sound.music.playing || MainMenuState.mainMusic == false)
-		{
-			FlxG.sound.playMusic(Paths.music('songSelect'));
-			MainMenuState.mainMusic = false;
-		}
 		
 		persistentUpdate = true;
 		PlayState.isStoryMode = false;
@@ -266,7 +249,7 @@ class CoverState extends MusicBeatState
 		var shiftMult:Int = 1;
 		if(FlxG.keys.pressed.SHIFT) shiftMult = 3;
 
-		if (!playerBonus.playingMusic)
+		if (!playerCover.playingMusic)
 		{
 			scoreText.text = Language.getPhrase('personal_best', 'PERSONAL BEST: {1} ({2}%)', [lerpScore, ratingSplit.join('.')]);
 			positionHighscore();

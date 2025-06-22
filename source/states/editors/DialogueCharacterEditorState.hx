@@ -5,183 +5,368 @@ import openfl.events.Event;
 import openfl.events.IOErrorEvent;
 import flash.net.FileFilter;
 import haxe.Json;
+import lime.system.Clipboard;
 
 import objects.TypedAlphabet;
 
 import cutscenes.DialogueBoxPsych;
 import cutscenes.DialogueCharacter;
+
 import states.editors.content.Prompt;
 
-class DialogueEditorState extends MusicBeatState implements PsychUIEventHandler.PsychUIEvent
+class DialogueCharacterEditorState extends MusicBeatState implements PsychUIEventHandler.PsychUIEvent
 {
-	var character:DialogueCharacter;
 	var box:FlxSprite;
-	var daText:TypedAlphabet;
+	var daText:TypedAlphabet = null;
 
-	var selectedText:FlxText;
+	private static var TIP_TEXT_MAIN:String =
+	'JKLI - Move camera (Hold Shift to move 4x faster)
+	\nQ/E - Zoom out/in
+	\nR - Reset Camera
+	\nH - Toggle Speech Bubble
+	\nSpace - Reset text';
+
+	private static var TIP_TEXT_OFFSET:String =
+	'JKLI - Move camera (Hold Shift to move 4x faster)
+	\nQ/E - Zoom out/in
+	\nR - Reset Camera
+	\nH - Toggle Ghosts
+	\nWASD - Move Looping animation offset (Red)
+	\nArrow Keys - Move Idle/Finished animation offset (Blue)
+	\nHold Shift to move offsets 10x faster';
+
+	var tipText:FlxText;
+	var offsetLoopText:FlxText;
+	var offsetIdleText:FlxText;
 	var animText:FlxText;
 
-	var defaultLine:DialogueLine;
-	var dialogueFile:DialogueFile = null;
+	var camGame:FlxCamera;
+	var camHUD:FlxCamera;
+
+	var mainGroup:FlxSpriteGroup;
+	var hudGroup:FlxSpriteGroup;
+
+	var character:DialogueCharacter;
+	var ghostLoop:DialogueCharacter;
+	var ghostIdle:DialogueCharacter;
+
+	var curAnim:Int = 0;
 	var unsavedProgress:Bool = false;
 
 	override function create() {
 		persistentUpdate = persistentDraw = true;
-		FlxG.camera.bgColor = FlxColor.fromHSL(0, 0, 0.5);
-
-		defaultLine = {
-			portrait: DialogueCharacter.DEFAULT_CHARACTER,
-			expression: 'talk',
-			text: DEFAULT_TEXT,
-			boxState: DEFAULT_BUBBLETYPE,
-			speed: 0.05,
-			sound: ''
-		};
-
-		dialogueFile = {
-			dialogue: [
-				copyDefaultLine()
-			]
-		};
+		camGame = initPsychCamera();
+		camGame.bgColor = FlxColor.fromHSL(0, 0, 0.5);
+		camHUD = new FlxCamera();
+		camHUD.bgColor.alpha = 0;
+		FlxG.cameras.add(camHUD, false);
 		
+		mainGroup = new FlxSpriteGroup();
+		mainGroup.cameras = [camGame];
+		hudGroup = new FlxSpriteGroup();
+		hudGroup.cameras = [camGame];
+		add(mainGroup);
+		add(hudGroup);
+
 		character = new DialogueCharacter();
 		character.scrollFactor.set();
-		add(character);
+		mainGroup.add(character);
+		
+		ghostLoop = new DialogueCharacter();
+		ghostLoop.alpha = 0;
+		ghostLoop.color = FlxColor.RED;
+		ghostLoop.isGhost = true;
+		ghostLoop.jsonFile = character.jsonFile;
+		ghostLoop.cameras = [camGame];
+		mainGroup.add(ghostLoop);
+		
+		ghostIdle = new DialogueCharacter();
+		ghostIdle.alpha = 0;
+		ghostIdle.color = FlxColor.BLUE;
+		ghostIdle.isGhost = true;
+		ghostIdle.jsonFile = character.jsonFile;
+		ghostIdle.cameras = [camGame];
+		mainGroup.add(ghostIdle);
 
 		box = new FlxSprite(70, 370);
 		box.antialiasing = ClientPrefs.data.antialiasing;
 		box.frames = Paths.getSparrowAtlas('speech_bubble');
 		box.scrollFactor.set();
 		box.animation.addByPrefix('normal', 'speech bubble normal', 24);
-		box.animation.addByPrefix('angry', 'AHH speech bubble', 24);
 		box.animation.addByPrefix('center', 'speech bubble middle', 24);
-		box.animation.addByPrefix('center-angry', 'AHH Speech Bubble middle', 24);
 		box.animation.play('normal', true);
 		box.setGraphicSize(Std.int(box.width * 0.9));
 		box.updateHitbox();
-		add(box);
+		hudGroup.add(box);
+
+		tipText = new FlxText(10, 10, FlxG.width - 20, TIP_TEXT_MAIN, 8);
+		tipText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, RIGHT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		tipText.cameras = [camHUD];
+		tipText.scrollFactor.set();
+		add(tipText);
+
+		offsetLoopText = new FlxText(10, 10, 0, '', 32);
+		offsetLoopText.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		offsetLoopText.cameras = [camHUD];
+		offsetLoopText.scrollFactor.set();
+		add(offsetLoopText);
+		offsetLoopText.visible = false;
+
+		offsetIdleText = new FlxText(10, 46, 0, '', 32);
+		offsetIdleText.setFormat(Paths.font("vcr.ttf"), 32, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		offsetIdleText.cameras = [camHUD];
+		offsetIdleText.scrollFactor.set();
+		add(offsetIdleText);
+		offsetIdleText.visible = false;
+
+		animText = new FlxText(10, 22, FlxG.width - 20, '', 8);
+		animText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
+		animText.scrollFactor.set();
+		animText.cameras = [camHUD];
+		add(animText);
+
+		reloadCharacter();
+		updateTextBox();
+
+		daText = new TypedAlphabet(DialogueBoxPsych.DEFAULT_TEXT_X, DialogueBoxPsych.DEFAULT_TEXT_Y, '', 0.05, false);
+		daText.setScale(0.7);
+		daText.text = DEFAULT_TEXT;
+		hudGroup.add(daText);
 
 		addEditorBox();
 		FlxG.mouse.visible = true;
-
-		var addLineText:FlxText = new FlxText(10, 10, FlxG.width - 20, 'Press O to remove the current dialogue line, Press P to add another line after the current one.', 8);
-		addLineText.setFormat(Paths.font("vcr.ttf"), 16, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-		addLineText.scrollFactor.set();
-		add(addLineText);
-
-		selectedText = new FlxText(10, 32, FlxG.width - 20, '', 8);
-		selectedText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-		selectedText.scrollFactor.set();
-		add(selectedText);
-
-		animText = new FlxText(10, 62, FlxG.width - 20, '', 8);
-		animText.setFormat(Paths.font("vcr.ttf"), 24, FlxColor.WHITE, LEFT, FlxTextBorderStyle.OUTLINE, FlxColor.BLACK);
-		animText.scrollFactor.set();
-		add(animText);
+		updateCharTypeBox();
 		
-		daText = new TypedAlphabet(DialogueBoxPsych.DEFAULT_TEXT_X, DialogueBoxPsych.DEFAULT_TEXT_Y, DEFAULT_TEXT);
-		daText.setScale(0.7);
-		add(daText);
-		changeText();
 		super.create();
 	}
 
-	var UI_box:PsychUIBox;
-	function addEditorBox()
-	{
-		UI_box = new PsychUIBox(FlxG.width - 260, 10, 250, 210, ['Dialogue Line']);
-		UI_box.scrollFactor.set();
-		addDialogueLineUI();
-		add(UI_box);
+	var UI_typebox:PsychUIBox;
+	var UI_mainbox:PsychUIBox;
+	function addEditorBox() {
+		UI_typebox = new PsychUIBox(900, FlxG.height - 230, 120, 180, ['Character Type']);
+		UI_typebox.scrollFactor.set();
+		UI_typebox.cameras = [camHUD];
+		addTypeUI();
+		add(UI_typebox);
+
+		UI_mainbox = new PsychUIBox(UI_typebox.x + UI_typebox.width + 10, FlxG.height - 300, 200, 250, ['Animations', 'Character']);
+		UI_mainbox.scrollFactor.set();
+		UI_mainbox.cameras = [camHUD];
+		addAnimationsUI();
+		addCharacterUI();
+		add(UI_mainbox);
+		UI_mainbox.selectedName = 'Character';
+		lastTab = UI_mainbox.selectedName;
 	}
 
-	var characterInputText:PsychUIInputText;
-	var lineInputText:PsychUIInputText;
-	var angryCheckbox:PsychUICheckBox;
-	var speedStepper:PsychUINumericStepper;
-	var soundInputText:PsychUIInputText;
-	function addDialogueLineUI() {
-		var tab_group = UI_box.getTab('Dialogue Line').menu;
-
-		characterInputText = new PsychUIInputText(10, 20, 80, DialogueCharacter.DEFAULT_CHARACTER, 8);
-		speedStepper = new PsychUINumericStepper(10, characterInputText.y + 40, 0.005, 0.05, 0, 0.5, 3);
-
-		angryCheckbox = new PsychUICheckBox(speedStepper.x + 120, speedStepper.y, "Angry Textbox", 200);
-		angryCheckbox.onClick = function()
-		{
-			updateTextBox();
-			dialogueFile.dialogue[curSelected].boxState = (angryCheckbox.checked ? 'angry' : 'normal');
-		};
-
-		soundInputText = new PsychUIInputText(10, speedStepper.y + 40, 150, '', 8);
-		lineInputText = new PsychUIInputText(10, soundInputText.y + 35, 200, DEFAULT_TEXT, 8);
-		lineInputText.onPressEnter = function(e)
-		{
-			if(e.shiftKey)
+	var characterTypeRadio:PsychUIRadioGroup;
+	function addTypeUI() {
+		var tab_group = UI_typebox.getTab('Character Type').menu;
+		
+		characterTypeRadio = new PsychUIRadioGroup(10, 20, ['Left', 'Center', 'Right'], 40);
+		characterTypeRadio.checked = 0;
+		characterTypeRadio.onClick = function() {
+			switch(characterTypeRadio.checked)
 			{
-				lineInputText.text += '\n';
-				lineInputText.caretIndex++;
+				case 0:
+					character.jsonFile.dialogue_pos = 'left';
+				case 1:
+					character.jsonFile.dialogue_pos = 'center';
+				case 2:
+					character.jsonFile.dialogue_pos = 'right';
 			}
-			else PsychUIInputText.focusOn = null;
+			updateCharTypeBox();
+		}
+		tab_group.add(characterTypeRadio);
+	}
+
+	var curSelectedAnim:String;
+	var animationArray:Array<String> = [];
+	var animationDropDown:PsychUIDropDownMenu;
+	var animationInputText:PsychUIInputText;
+	var loopInputText:PsychUIInputText;
+	var idleInputText:PsychUIInputText;
+	function addAnimationsUI() {
+		var tab_group = UI_mainbox.getTab('Animations').menu;
+
+		animationDropDown = new PsychUIDropDownMenu(10, 30, [''], function(id:Int, animation:String) {
+			if(character.dialogueAnimations.exists(animation)) {
+				ghostLoop.playAnim(animation);
+				ghostIdle.playAnim(animation, true);
+
+				curSelectedAnim = animation;
+				var animShit:DialogueAnimArray = character.dialogueAnimations.get(curSelectedAnim);
+				offsetLoopText.text = 'Loop: ' + animShit.loop_offsets;
+				offsetIdleText.text = 'Idle: ' + animShit.idle_offsets;
+
+				animationInputText.text = animShit.anim;
+				loopInputText.text = animShit.loop_name;
+				idleInputText.text = animShit.idle_name;
+			}
+		});
+		
+		animationInputText = new PsychUIInputText(15, 85, 80, '', 8);
+		loopInputText = new PsychUIInputText(animationInputText.x, animationInputText.y + 35, 150, '', 8);
+		idleInputText = new PsychUIInputText(loopInputText.x, loopInputText.y + 40, 150, '', 8);
+		
+		var addUpdateButton:PsychUIButton = new PsychUIButton(10, idleInputText.y + 30, "Add/Update", function() {
+			var theAnim:String = animationInputText.text.trim();
+			if(character.dialogueAnimations.exists(theAnim)) //Update
+			{
+				for (i in 0...character.jsonFile.animations.length) {
+					var animArray:DialogueAnimArray = character.jsonFile.animations[i];
+					if(animArray.anim.trim() == theAnim) {
+						animArray.loop_name = loopInputText.text;
+						animArray.idle_name = idleInputText.text;
+						break;
+					}
+				}
+
+				character.reloadAnimations();
+				ghostLoop.reloadAnimations();
+				ghostIdle.reloadAnimations();
+				if(curSelectedAnim == theAnim) {
+					ghostLoop.playAnim(theAnim);
+					ghostIdle.playAnim(theAnim, true);
+				}
+			}
+			else //Add
+			{
+				var newAnim:DialogueAnimArray = {
+					anim: theAnim,
+					loop_name: loopInputText.text,
+					loop_offsets: [0, 0],
+					idle_name: idleInputText.text,
+					idle_offsets: [0, 0]
+				}
+				character.jsonFile.animations.push(newAnim);
+
+				var lastSelected:String = animationDropDown.selectedLabel;
+				character.reloadAnimations();
+				ghostLoop.reloadAnimations();
+				ghostIdle.reloadAnimations();
+				reloadAnimationsDropDown();
+				animationDropDown.selectedLabel = lastSelected;
+			}
+		});
+		
+		var removeUpdateButton:PsychUIButton = new PsychUIButton(100, addUpdateButton.y, "Remove", function() {
+			for (i in 0...character.jsonFile.animations.length) {
+				var animArray:DialogueAnimArray = character.jsonFile.animations[i];
+				if(animArray != null && animArray.anim.trim() == animationInputText.text.trim()) {
+					var lastSelected:String = animationDropDown.selectedLabel;
+					character.jsonFile.animations.remove(animArray);
+					character.reloadAnimations();
+					ghostLoop.reloadAnimations();
+					ghostIdle.reloadAnimations();
+					reloadAnimationsDropDown();
+					if(character.jsonFile.animations.length > 0 && lastSelected == animArray.anim.trim()) {
+						var animToPlay:String = character.jsonFile.animations[0].anim;
+						ghostLoop.playAnim(animToPlay);
+						ghostIdle.playAnim(animToPlay, true);
+					}
+					animationDropDown.selectedLabel = lastSelected;
+					animationInputText.text = '';
+					loopInputText.text = '';
+					idleInputText.text = '';
+					break;
+				}
+			}
+		});
+		
+		tab_group.add(new FlxText(animationDropDown.x, animationDropDown.y - 18, 0, 'Animations:'));
+		tab_group.add(new FlxText(animationInputText.x, animationInputText.y - 18, 0, 'Animation name:'));
+		tab_group.add(new FlxText(loopInputText.x, loopInputText.y - 18, 0, 'Loop name on .XML file:'));
+		tab_group.add(new FlxText(idleInputText.x, idleInputText.y - 18, 0, 'Idle/Finished name on .XML file:'));
+		tab_group.add(animationInputText);
+		tab_group.add(loopInputText);
+		tab_group.add(idleInputText);
+		tab_group.add(addUpdateButton);
+		tab_group.add(removeUpdateButton);
+		tab_group.add(animationDropDown);
+		reloadAnimationsDropDown();
+	}
+
+	function reloadAnimationsDropDown() {
+		animationArray = [];
+		for (anim in character.jsonFile.animations) {
+			animationArray.push(anim.anim);
+		}
+
+		if(animationArray.length < 1) animationArray = [''];
+		animationDropDown.list = animationArray;
+	}
+
+	var imageInputText:PsychUIInputText;
+	var scaleStepper:PsychUINumericStepper;
+	var xStepper:PsychUINumericStepper;
+	var yStepper:PsychUINumericStepper;
+	function addCharacterUI() {
+		var tab_group = UI_mainbox.getTab('Character').menu;
+
+		imageInputText = new PsychUIInputText(10, 30, 80, character.jsonFile.image, 8);
+		xStepper = new PsychUINumericStepper(imageInputText.x, imageInputText.y + 50, 10, character.jsonFile.position[0], -2000, 2000, 0);
+		yStepper = new PsychUINumericStepper(imageInputText.x + 80, xStepper.y, 10, character.jsonFile.position[1], -2000, 2000, 0);
+		scaleStepper = new PsychUINumericStepper(imageInputText.x, xStepper.y + 50, 0.05, character.jsonFile.scale, 0.1, 10, 2);
+
+		var noAntialiasingCheckbox:PsychUICheckBox = new PsychUICheckBox(scaleStepper.x + 80, scaleStepper.y, "No Antialiasing", 100);
+		noAntialiasingCheckbox.checked = (character.jsonFile.no_antialiasing == true);
+		noAntialiasingCheckbox.onClick = function()
+		{
+			character.jsonFile.no_antialiasing = noAntialiasingCheckbox.checked;
+			character.antialiasing = !character.jsonFile.no_antialiasing;
 		};
+		
+		tab_group.add(new FlxText(10, imageInputText.y - 18, 0, 'Image file name:'));
+		tab_group.add(new FlxText(10, xStepper.y - 18, 0, 'Position Offset:'));
+		tab_group.add(new FlxText(10, scaleStepper.y - 18, 0, 'Scale:'));
+		tab_group.add(imageInputText);
+		tab_group.add(xStepper);
+		tab_group.add(yStepper);
+		tab_group.add(scaleStepper);
+		tab_group.add(noAntialiasingCheckbox);
 
-		var loadButton:PsychUIButton = new PsychUIButton(20, lineInputText.y + 25, "Load Dialogue", function() {
-			loadDialogue();
+		var reloadImageButton:PsychUIButton = new PsychUIButton(10, scaleStepper.y + 60, "Reload Image", function() {
+			reloadCharacter();
 		});
-		var saveButton:PsychUIButton = new PsychUIButton(loadButton.x + 120, loadButton.y, "Save Dialogue", function() {
-			saveDialogue();
+		
+		var loadButton:PsychUIButton = new PsychUIButton(reloadImageButton.x + 100, reloadImageButton.y, "Load Character", function() {
+			loadCharacter();
 		});
-
-		tab_group.add(new FlxText(10, speedStepper.y - 18, 0, 'Interval/Speed (ms):'));
-		tab_group.add(new FlxText(10, characterInputText.y - 18, 0, 'Character:'));
-		tab_group.add(new FlxText(10, soundInputText.y - 18, 0, 'Sound file name:'));
-		tab_group.add(new FlxText(10, lineInputText.y - 18, 0, 'Text:'));
-		tab_group.add(characterInputText);
-		tab_group.add(angryCheckbox);
-		tab_group.add(speedStepper);
-		tab_group.add(soundInputText);
-		tab_group.add(lineInputText);
+		var saveButton:PsychUIButton = new PsychUIButton(loadButton.x, reloadImageButton.y - 25, "Save Character", function() {
+			saveCharacter();
+		});
+		tab_group.add(reloadImageButton);
 		tab_group.add(loadButton);
 		tab_group.add(saveButton);
 	}
-
-	function copyDefaultLine():DialogueLine {
-		var copyLine:DialogueLine = {
-			portrait: defaultLine.portrait,
-			expression: defaultLine.expression,
-			text: defaultLine.text,
-			boxState: defaultLine.boxState,
-			speed: defaultLine.speed,
-			sound: ''
-		};
-		return copyLine;
-	}
-
-	function updateTextBox() {
-		box.flipX = false;
-		var isAngry:Bool = angryCheckbox.checked;
-		var anim:String = isAngry ? 'angry' : 'normal';
-
-		switch(character.jsonFile.dialogue_pos) {
+	
+	function updateCharTypeBox()
+	{
+		switch(character.jsonFile.dialogue_pos)
+		{
 			case 'left':
-				box.flipX = true;
+				characterTypeRadio.checked = 0;
 			case 'center':
-				if(isAngry) {
-					anim = 'center-angry';
-				} else {
-					anim = 'center';
-				}
+				characterTypeRadio.checked = 1;
+			default:
+				characterTypeRadio.checked = 2;
 		}
-		box.animation.play(anim, true);
-		DialogueBoxPsych.updateBoxOffsets(box);
+		reloadCharacter();
+		updateTextBox();
 	}
+
+	private static var DEFAULT_TEXT:String = 'Lorem ipsum dolor sit amet';
 
 	function reloadCharacter() {
-		character.frames = Paths.getSparrowAtlas('dialogue/' + character.jsonFile.image);
-		character.jsonFile = character.jsonFile;
-		character.reloadAnimations();
-		character.setGraphicSize(Std.int(character.width * DialogueCharacter.DEFAULT_SCALE * character.jsonFile.scale));
-		character.updateHitbox();
+		var charsArray:Array<DialogueCharacter> = [character, ghostLoop, ghostIdle];
+		for (char in charsArray) {
+			char.frames = Paths.getSparrowAtlas('dialogue/' + character.jsonFile.image);
+			char.jsonFile = character.jsonFile;
+			char.reloadAnimations();
+			char.setGraphicSize(Std.int(char.width * DialogueCharacter.DEFAULT_SCALE * character.jsonFile.scale));
+			char.updateHitbox();
+		}
 		character.x = DialogueBoxPsych.LEFT_CHAR_X;
 		character.y = DialogueBoxPsych.DEFAULT_CHAR_Y;
 
@@ -193,111 +378,74 @@ class DialogueEditorState extends MusicBeatState implements PsychUIEventHandler.
 				character.x = FlxG.width / 2;
 				character.x -= character.width / 2;
 		}
-		character.x += character.jsonFile.position[0];
-		character.y += character.jsonFile.position[1];
-		character.playAnim(); //Plays random animation
-		characterAnimSpeed();
-
-		if(character.animation.curAnim != null && character.jsonFile.animations != null) {
-			animText.text = 'Animation: ' + character.jsonFile.animations[curAnim].anim + ' (' + (curAnim + 1) +' / ' + character.jsonFile.animations.length + ') - Press W or S to scroll';
-		} else {
-			animText.text = 'ERROR! NO ANIMATIONS FOUND';
-		}
-	}
-
-	private static var DEFAULT_TEXT:String = "coolswag";
-	private static var DEFAULT_SPEED:Float = 0.05;
-	private static var DEFAULT_BUBBLETYPE:String = "normal";
-	function reloadText(skipDialogue:Bool) {
-		var textToType:String = lineInputText.text;
-		if(textToType == null || textToType.length < 1) textToType = ' ';
-
-		daText.text = textToType;
-
-		if(skipDialogue) 
-			daText.finishText();
-		else if(daText.delay > 0)
-		{
-			if(character.jsonFile.animations.length > curAnim && character.jsonFile.animations[curAnim] != null) {
-				character.playAnim(character.jsonFile.animations[curAnim].anim);
-			}
-			characterAnimSpeed();
+		character.x += character.jsonFile.position[0] + mainGroup.x;
+		character.y += character.jsonFile.position[1] + mainGroup.y;
+		character.playAnim(character.jsonFile.animations[0].anim);
+		if(character.jsonFile.animations.length > 0) {
+			curSelectedAnim = character.jsonFile.animations[0].anim;
+			var animShit:DialogueAnimArray = character.dialogueAnimations.get(curSelectedAnim);
+			ghostLoop.playAnim(animShit.anim);
+			ghostIdle.playAnim(animShit.anim, true);
+			offsetLoopText.text = 'Loop: ' + animShit.loop_offsets;
+			offsetIdleText.text = 'Idle: ' + animShit.idle_offsets;
 		}
 
-		daText.y = DialogueBoxPsych.DEFAULT_TEXT_Y;
-		if(daText.rows > 2) daText.y -= DialogueBoxPsych.LONG_TEXT_ADD;
+		curAnim = 0;
+		animText.text = 'Animation: ' + character.jsonFile.animations[curAnim].anim + ' (' + (curAnim + 1) +' / ' + character.jsonFile.animations.length + ') - Press W or S to scroll';
 
 		#if DISCORD_ALLOWED
 		// Updating Discord Rich Presence
-		var rpcText:String = lineInputText.text;
-		if(rpcText == null || rpcText.length < 1) rpcText = '(Empty)';
-		if(rpcText.length < 3) rpcText += '   '; //Fixes a bug on RPC that triggers an error when the text is too short
-		DiscordClient.changePresence("Dialogue Editor", rpcText);
+		DiscordClient.changePresence("Dialogue Character Editor", "Editting: " + character.jsonFile.image);
 		#end
 	}
 
+	function updateTextBox() {
+		box.flipX = false;
+		var anim:String = 'normal';
+		switch(character.jsonFile.dialogue_pos) {
+			case 'left':
+				box.flipX = true;
+			case 'center':
+				anim = 'center';
+		}
+		box.animation.play(anim, true);
+		DialogueBoxPsych.updateBoxOffsets(box);
+	}
+
 	public function UIEvent(id:String, sender:Dynamic) {
+		//trace(id, sender);
 		if(id == PsychUICheckBox.CLICK_EVENT)
 			unsavedProgress = true;
 
-		if(id == PsychUIInputText.CHANGE_EVENT && (sender is PsychUIInputText)) {
-			if (sender == characterInputText)
-			{
-				character.reloadCharacterJson(characterInputText.text);
-				reloadCharacter();
-				if(character.jsonFile.animations.length > 0) {
-					curAnim = 0;
-					if(character.jsonFile.animations.length > curAnim && character.jsonFile.animations[curAnim] != null) {
-						character.playAnim(character.jsonFile.animations[curAnim].anim, daText.finishedText);
-						animText.text = 'Animation: ' + character.jsonFile.animations[curAnim].anim + ' (' + (curAnim + 1) +' / ' + character.jsonFile.animations.length + ') - Press W or S to scroll';
-					} else {
-						animText.text = 'ERROR! NO ANIMATIONS FOUND';
-					}
-					characterAnimSpeed();
-				}
-				dialogueFile.dialogue[curSelected].portrait = characterInputText.text;
-				reloadText(false);
-				updateTextBox();
-			}
-			else if(sender == lineInputText)
-			{
-				dialogueFile.dialogue[curSelected].text = lineInputText.text;
-
-				daText.text = lineInputText.text;
-				if(daText.text == null) daText.text = '';
-				reloadText(true);
-			}
-			else if(sender == soundInputText)
-			{
-				daText.finishText();
-				dialogueFile.dialogue[curSelected].sound = soundInputText.text;
-				daText.sound = soundInputText.text;
-				if(daText.sound == null) daText.sound = '';
-			}
+		if(id == PsychUIInputText.CHANGE_EVENT && sender == imageInputText) {
+			character.jsonFile.image = imageInputText.text;
 			unsavedProgress = true;
-		} else if(id == PsychUINumericStepper.CHANGE_EVENT && (sender == speedStepper)) {
-			dialogueFile.dialogue[curSelected].speed = speedStepper.value;
-			if(Math.isNaN(dialogueFile.dialogue[curSelected].speed) || dialogueFile.dialogue[curSelected].speed == null || dialogueFile.dialogue[curSelected].speed < 0.001) {
-				dialogueFile.dialogue[curSelected].speed = 0.0;
+		} else if(id == PsychUINumericStepper.CHANGE_EVENT && (sender is PsychUINumericStepper)) {
+			if(sender == scaleStepper) {
+				character.jsonFile.scale = scaleStepper.value;
+				reloadCharacter();
+			} else if(sender == xStepper) {
+				character.jsonFile.position[0] = xStepper.value;
+				reloadCharacter();
+			} else if(sender == yStepper) {
+				character.jsonFile.position[1] = yStepper.value;
+				reloadCharacter();
 			}
-			daText.delay = dialogueFile.dialogue[curSelected].speed;
-			reloadText(false);
 			unsavedProgress = true;
 		}
 	}
 
-	var curSelected:Int = 0;
-	var curAnim:Int = 0;
+	var currentGhosts:Int = 0;
+	var lastTab:String = 'Character';
 	var transitioning:Bool = false;
 	override function update(elapsed:Float) {
-		if(transitioning) {
-			super.update(elapsed);
+		super.update(elapsed);
+		if(transitioning)
 			return;
-		}
 
 		if(character.animation.curAnim != null) {
 			if(daText.finishedText) {
-				if(character.animationIsLoop() && character.animation.curAnim.finished) {
+				if(character.animationIsLoop()) {
 					character.playAnim(character.animation.curAnim.name, true);
 				}
 			} else if(character.animation.curAnim.finished) {
@@ -308,9 +456,149 @@ class DialogueEditorState extends MusicBeatState implements PsychUIEventHandler.
 		if(PsychUIInputText.focusOn == null)
 		{
 			ClientPrefs.toggleVolumeKeys(true);
-			if(FlxG.keys.justPressed.SPACE) {
-				reloadText(false);
+			if(FlxG.keys.justPressed.SPACE && UI_mainbox.selectedName == 'Character') {
+				character.playAnim(character.jsonFile.animations[curAnim].anim);
+				daText.resetDialogue();
+				updateTextBox();
 			}
+
+			//lots of Ifs lol get trolled
+			var offsetAdd:Int = 1;
+			var speed:Float = 300;
+			if(FlxG.keys.pressed.SHIFT) {
+				speed = 1200;
+				offsetAdd = 10;
+			}
+
+			var negaMult:Array<Int> = [1, 1, -1, -1];
+			var controlArray:Array<Bool> = [FlxG.keys.pressed.J, FlxG.keys.pressed.I, FlxG.keys.pressed.L, FlxG.keys.pressed.K];
+			for (i in 0...controlArray.length) {
+				if(controlArray[i]) {
+					if(i % 2 == 1) {
+						mainGroup.y += speed * elapsed * negaMult[i];
+					} else {
+						mainGroup.x += speed * elapsed * negaMult[i];
+					}
+				}
+			}
+
+			if(UI_mainbox.selectedName == 'Animations' && curSelectedAnim != null && character.dialogueAnimations.exists(curSelectedAnim)) {
+				var moved:Bool = false;
+				var animShit:DialogueAnimArray = character.dialogueAnimations.get(curSelectedAnim);
+				var controlArrayLoop:Array<Bool> = [FlxG.keys.justPressed.A, FlxG.keys.justPressed.W, FlxG.keys.justPressed.D, FlxG.keys.justPressed.S];
+				var controlArrayIdle:Array<Bool> = [FlxG.keys.justPressed.LEFT, FlxG.keys.justPressed.UP, FlxG.keys.justPressed.RIGHT, FlxG.keys.justPressed.DOWN];
+				for (i in 0...controlArrayLoop.length) {
+					if(controlArrayLoop[i]) {
+						if(i % 2 == 1) {
+							animShit.loop_offsets[1] += offsetAdd * negaMult[i];
+						} else {
+							animShit.loop_offsets[0] += offsetAdd * negaMult[i];
+						}
+						moved = true;
+					}
+				}
+				for (i in 0...controlArrayIdle.length) {
+					if(controlArrayIdle[i]) {
+						if(i % 2 == 1) {
+							animShit.idle_offsets[1] += offsetAdd * negaMult[i];
+						} else {
+							animShit.idle_offsets[0] += offsetAdd * negaMult[i];
+						}
+						moved = true;
+					}
+				}
+
+				if(moved) {
+					offsetLoopText.text = 'Loop: ' + animShit.loop_offsets;
+					offsetIdleText.text = 'Idle: ' + animShit.idle_offsets;
+					ghostLoop.offset.set(animShit.loop_offsets[0], animShit.loop_offsets[1]);
+					ghostIdle.offset.set(animShit.idle_offsets[0], animShit.idle_offsets[1]);
+				}
+			}
+
+			if (FlxG.keys.pressed.Q && camGame.zoom > 0.1) {
+				camGame.zoom -= elapsed * camGame.zoom;
+				if(camGame.zoom < 0.1) camGame.zoom = 0.1;
+			}
+			if (FlxG.keys.pressed.E && camGame.zoom < 1) {
+				camGame.zoom += elapsed * camGame.zoom;
+				if(camGame.zoom > 1) camGame.zoom = 1;
+			}
+			if(FlxG.keys.justPressed.H) {
+				if(UI_mainbox.selectedName == 'Animations') {
+					currentGhosts++;
+					if(currentGhosts > 2) currentGhosts = 0;
+
+					ghostLoop.visible = (currentGhosts != 1);
+					ghostIdle.visible = (currentGhosts != 2);
+					ghostLoop.alpha = (currentGhosts == 2 ? 1 : 0.6);
+					ghostIdle.alpha = (currentGhosts == 1 ? 1 : 0.6);
+				} else {
+					hudGroup.visible = !hudGroup.visible;
+				}
+			}
+			if(FlxG.keys.justPressed.R) {
+				camGame.zoom = 1;
+				mainGroup.setPosition(0, 0);
+				hudGroup.visible = true;
+			}
+
+			if(UI_mainbox.selectedName != lastTab) {
+				if(UI_mainbox.selectedName == 'Animations') {
+					hudGroup.alpha = 0;
+					mainGroup.alpha = 0;
+					ghostLoop.alpha = 0.6;
+					ghostIdle.alpha = 0.6;
+					tipText.text = TIP_TEXT_OFFSET;
+					offsetLoopText.visible = true;
+					offsetIdleText.visible = true;
+					animText.visible = false;
+					currentGhosts = 0;
+				} else {
+					hudGroup.alpha = 1;
+					mainGroup.alpha = 1;
+					ghostLoop.alpha = 0;
+					ghostIdle.alpha = 0;
+					tipText.text = TIP_TEXT_MAIN;
+					offsetLoopText.visible = false;
+					offsetIdleText.visible = false;
+					animText.visible = true;
+					updateTextBox();
+					daText.resetDialogue();
+					
+					if(curAnim < 0) curAnim = character.jsonFile.animations.length - 1;
+					else if(curAnim >= character.jsonFile.animations.length) curAnim = 0;
+					
+					character.playAnim(character.jsonFile.animations[curAnim].anim);
+					animText.text = 'Animation: ' + character.jsonFile.animations[curAnim].anim + ' (' + (curAnim + 1) +' / ' + character.jsonFile.animations.length + ') - Press W or S to scroll';
+				}
+				lastTab = UI_mainbox.selectedName;
+				currentGhosts = 0;
+			}
+			
+			if(UI_mainbox.selectedName == 'Character')
+			{
+				var negaMult:Array<Int> = [1, -1];
+				var controlAnim:Array<Bool> = [FlxG.keys.justPressed.W, FlxG.keys.justPressed.S];
+
+				if(controlAnim.contains(true))
+				{
+					for (i in 0...controlAnim.length) {
+						if(controlAnim[i] && character.jsonFile.animations.length > 0) {
+							curAnim -= negaMult[i];
+							if(curAnim < 0) curAnim = character.jsonFile.animations.length - 1;
+							else if(curAnim >= character.jsonFile.animations.length) curAnim = 0;
+
+							var animToPlay:String = character.jsonFile.animations[curAnim].anim;
+							if(character.dialogueAnimations.exists(animToPlay)) {
+								character.playAnim(animToPlay, daText.finishedText);
+							}
+						}
+					}
+					animText.text = 'Animation: ' + character.jsonFile.animations[curAnim].anim + ' (' + (curAnim + 1) +' / ' + character.jsonFile.animations.length + ') - Press W or S to scroll';
+				}
+			}
+
 			if(FlxG.keys.justPressed.ESCAPE) {
 				if(!unsavedProgress)
 				{
@@ -319,102 +607,18 @@ class DialogueEditorState extends MusicBeatState implements PsychUIEventHandler.
 					transitioning = true;
 				}
 				else openSubState(new ExitConfirmationPrompt(function() transitioning = true));
-				return;
-			}
-			var negaMult:Array<Int> = [1, -1];
-			var controlAnim:Array<Bool> = [FlxG.keys.justPressed.W, FlxG.keys.justPressed.S];
-			var controlText:Array<Bool> = [FlxG.keys.justPressed.D, FlxG.keys.justPressed.A];
-			for (i in 0...controlAnim.length) {
-				if(controlAnim[i] && character.jsonFile.animations.length > 0) {
-					curAnim -= negaMult[i];
-					if(curAnim < 0) curAnim = character.jsonFile.animations.length - 1;
-					else if(curAnim >= character.jsonFile.animations.length) curAnim = 0;
-
-					var animToPlay:String = character.jsonFile.animations[curAnim].anim;
-					if(character.dialogueAnimations.exists(animToPlay)) {
-						character.playAnim(animToPlay, daText.finishedText);
-						dialogueFile.dialogue[curSelected].expression = animToPlay;
-					}
-					animText.text = 'Animation: ' + animToPlay + ' (' + (curAnim + 1) +' / ' + character.jsonFile.animations.length + ') - Press W or S to scroll';
-				}
-				if(controlText[i]) {
-					changeText(negaMult[i]);
-				}
 			}
 
-			if(FlxG.keys.justPressed.O) {
-				dialogueFile.dialogue.remove(dialogueFile.dialogue[curSelected]);
-				if(dialogueFile.dialogue.length < 1) //You deleted everything, dumbo!
-				{
-					dialogueFile.dialogue = [
-						copyDefaultLine()
-					];
-				}
-				changeText();
-			} else if(FlxG.keys.justPressed.P) {
-				dialogueFile.dialogue.insert(curSelected + 1, copyDefaultLine());
-				changeText(1);
-			}
+			ghostLoop.setPosition(character.x, character.y);
+			ghostIdle.setPosition(character.x, character.y);
+			hudGroup.x = mainGroup.x;
+			hudGroup.y = mainGroup.y;
 		}
 		else ClientPrefs.toggleVolumeKeys(false);
-		super.update(elapsed);
 	}
-
-	function changeText(add:Int = 0) {
-		curSelected = FlxMath.wrap(curSelected + add, 0, dialogueFile.dialogue.length - 1);
-
-		var curDialogue:DialogueLine = dialogueFile.dialogue[curSelected];
-		characterInputText.text = curDialogue.portrait;
-		lineInputText.text = curDialogue.text;
-		angryCheckbox.checked = (curDialogue.boxState == 'angry');
-		speedStepper.value = curDialogue.speed;
-
-		if (curDialogue.sound == null) curDialogue.sound = '';
-		soundInputText.text = curDialogue.sound;
-
-		daText.delay = speedStepper.value;
-		daText.sound = soundInputText.text;
-		if(daText.sound != null && daText.sound.trim() == '') daText.sound = 'dialogue';
-
-		curAnim = 0;
-		character.reloadCharacterJson(characterInputText.text);
-		reloadCharacter();
-		reloadText(false);
-		updateTextBox();
-
-		if(character.jsonFile.animations.length > 0)
-		{
-			for (num => animData in character.jsonFile.animations)
-			{
-				if(animData != null && animData.anim == curDialogue.expression)
-				{
-					curAnim = num;
-					break;
-				}
-			}
-
-			var selectedAnim:String = character.jsonFile.animations[curAnim].anim;
-			character.playAnim(selectedAnim, daText.finishedText);
-			animText.text = 'Animation: $selectedAnim (${curAnim + 1} / ${character.jsonFile.animations.length} ) - Press W or S to scroll';
-		}
-		else animText.text = 'ERROR! NO ANIMATIONS FOUND';
-		characterAnimSpeed();
-
-		selectedText.text = 'Line: (' + (curSelected + 1) + ' / ' + dialogueFile.dialogue.length + ') - Press A or D to scroll';
-	}
-
-	function characterAnimSpeed() {
-		if(character.animation.curAnim != null) {
-			var speed:Float = speedStepper.value;
-			var rate:Float = 24 - (((speed - 0.05) / 5) * 480);
-			if(rate < 12) rate = 12;
-			else if(rate > 48) rate = 48;
-			character.animation.curAnim.frameRate = rate;
-		}
-	}
-
+	
 	var _file:FileReference = null;
-	function loadDialogue() {
+	function loadCharacter() {
 		var jsonFilter:FileFilter = new FileFilter('JSON', 'json');
 		_file = new FileReference();
 		_file.addEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onLoadComplete);
@@ -437,13 +641,21 @@ class DialogueEditorState extends MusicBeatState implements PsychUIEventHandler.
 		if(fullPath != null) {
 			var rawJson:String = File.getContent(fullPath);
 			if(rawJson != null) {
-				var loadedDialog:DialogueFile = cast Json.parse(rawJson);
-				if(loadedDialog.dialogue != null && loadedDialog.dialogue.length > 0) //Make sure it's really a dialogue file
+				var loadedChar:DialogueCharacterFile = cast Json.parse(rawJson);
+				if(loadedChar.dialogue_pos != null) //Make sure it's really a dialogue character
 				{
 					var cutName:String = _file.name.substr(0, _file.name.length - 5);
 					trace("Successfully loaded file: " + cutName);
-					dialogueFile = loadedDialog;
-					changeText();
+					character.jsonFile = loadedChar;
+					reloadCharacter();
+					reloadAnimationsDropDown();
+					updateCharTypeBox();
+					updateTextBox();
+					daText.resetDialogue();
+					imageInputText.text = character.jsonFile.image;
+					scaleStepper.value = character.jsonFile.scale;
+					xStepper.value = character.jsonFile.position[0];
+					yStepper.value = character.jsonFile.position[1];
 					_file = null;
 					return;
 				}
@@ -479,15 +691,18 @@ class DialogueEditorState extends MusicBeatState implements PsychUIEventHandler.
 		trace("Problem loading file");
 	}
 
-	function saveDialogue() {
-		var data:String = haxe.Json.stringify(dialogueFile, "\t");
+	function saveCharacter() {
+		var data:String = haxe.Json.stringify(character.jsonFile, "\t");
 		if (data.length > 0)
 		{
+			var splittedImage:Array<String> = imageInputText.text.trim().split('_');
+			var characterName:String = splittedImage[0].toLowerCase().replace(' ', '');
+
 			_file = new FileReference();
 			_file.addEventListener(#if desktop Event.SELECT #else Event.COMPLETE #end, onSaveComplete);
 			_file.addEventListener(Event.CANCEL, onSaveCancel);
 			_file.addEventListener(IOErrorEvent.IO_ERROR, onSaveError);
-			_file.save(data, "dialogue.json");
+			_file.save(data, characterName + ".json");
 		}
 	}
 
@@ -521,5 +736,15 @@ class DialogueEditorState extends MusicBeatState implements PsychUIEventHandler.
 		_file.removeEventListener(IOErrorEvent.IO_ERROR, onSaveError);
 		_file = null;
 		FlxG.log.error("Problem saving file");
+	}
+
+	function ClipboardAdd(prefix:String = ''):String {
+		if(prefix.toLowerCase().endsWith('v')) //probably copy paste attempt
+		{
+			prefix = prefix.substring(0, prefix.length-1);
+		}
+
+		var text:String = prefix + Clipboard.text.replace('\n', '');
+		return text;
 	}
 }

@@ -153,7 +153,7 @@ class WeekData {
 				switch (menuNo)
 				{
 					case 1: suf = '-betadciu'; //BETADCIU menu.
-					case 2: suf = '-bonus';    //Bonus Songs Menu
+					case 2: suf = '-cover';    //Bonus Songs Menu
 				}
 				
 				#if desktop
@@ -227,7 +227,7 @@ class WeekData {
 				for (daWeek in listOfWeeks)
 				{
 					var path:String = directory + daWeek + '.json';
-					if(sys.FileSystem.exists(path) && path.endsWith('-betadciu.json') || sys.FileSystem.exists(path) && path.endsWith('-bonus.json'))
+					if(sys.FileSystem.exists(path) && path.endsWith('-betadciu.json') || sys.FileSystem.exists(path) && path.endsWith('-cover.json'))
 					{
 						addWeek(daWeek, path, directories[i], i, originalLength);
 					}
@@ -236,7 +236,7 @@ class WeekData {
 				for (file in FileSystem.readDirectory(directory))
 				{
 					var path = haxe.io.Path.join([directory, file]);
-					if (!sys.FileSystem.isDirectory(path) && file.endsWith('.json') && !path.endsWith('-betadciu.json') && !path.endsWith('-bonus.json'))
+					if (!sys.FileSystem.isDirectory(path) && file.endsWith('.json') && !path.endsWith('-betadciu.json') && !path.endsWith('-cover.json'))
 					{
 						addWeek(file.substr(0, file.length - 5), path, directories[i], i, originalLength);
 					}

@@ -1,4 +1,4 @@
-package states;
+package states.freeplay;
 
 import backend.WeekData;
 import backend.Highscore;

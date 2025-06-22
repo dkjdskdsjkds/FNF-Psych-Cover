@@ -18,9 +18,9 @@ typedef CharacterFile = {
 	var scale:Float;
 	var sing_duration:Float;
 	var healthicon:String;
-	var arrowSkin:String;
-	var arrowStyle:String;
-	var splashSkin:String;
+	@:optional var arrowSkin:String;
+	@:optional var arrowStyle:String;
+	@:optional var splashSkin:String;
 
 	var position:Array<Float>;
 	@:optional var player_position:Array<Float>; // New preferred field
